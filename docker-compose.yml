@@ -1,0 +1,30 @@
+version: "3.8"
+services:
+
+  mongodb:
+    image: mongo
+    ports:
+      - "27017-27019:27017-27019"
+    restart: always
+    networks:
+      - mongonet
+
+  mongo-proxy:
+    build: .
+    image: mongo-proxy:1.0
+    ports:
+      - "8080:8080"
+    environment:
+      - GIN_MODE=release
+      - MONGODB_HOST=mongodb
+      - MONGODB_PORT=27017
+      #- MONGODB_USER=username
+      #- MONGODB_PASS=password
+    restart: always
+    networks:
+      - mongonet
+    depends_on:
+      - mongodb
+
+networks:
+  mongonet:
