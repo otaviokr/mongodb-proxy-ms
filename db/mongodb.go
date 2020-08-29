@@ -36,12 +36,11 @@ func NewConnection(hostname string, port int, username, password string) (*Mongo
 	}, nil
 }
 
-// Insert will create a new document in collection collName in database dbName.
-// Insert("okr", "okr_coll", []byte(`{"id": 1,"name": "A green door","price": 12.50,"tags": ["home", "green"]}`), *client, ctx)
-func (m *MongoDBProxy) Insert(dbName, collName string, JSONString []byte) ([]byte, error) {
-	var bdoc interface{}
-	bson.UnmarshalJSON(JSONString, &bdoc)
-
+// DBWrapperFunc is responsible to setup and clean up database connections.
+// You should bind this function to the routes in the API, and pass the particular func as parameter.
+//func (m *MongoDBProxy) DBWrapperFunc(f func(ctx context.Context, c *mongo.Client) ([]string, error)) ([]string, error) {
+func (m *MongoDBProxy) DBWrapperFunc(db, clt string, req []byte,
+	f func(ctx context.Context, c *mongo.Client, db, clt string, req []byte) ([]byte, error)) ([]byte, error) {
 	client, ctx, cancelFunc, err := m.getConnection()
 	if err != nil {
 		log.Error().
@@ -52,7 +51,16 @@ func (m *MongoDBProxy) Insert(dbName, collName string, JSONString []byte) ([]byt
 	defer cancelFunc()
 	defer client.Disconnect(ctx)
 
-	r, err := client.Database(dbName).Collection(collName).InsertOne(ctx, &bdoc)
+	return f(ctx, client, db, clt, req)
+}
+
+// Insert will create a new document in collection collName in database dbName.
+// Insert("okr", "okr_coll", []byte(`{"id": 1,"name": "A green door","price": 12.50,"tags": ["home", "green"]}`), *client, ctx)
+func Insert(ctx context.Context, c *mongo.Client, dbName, collName string, JSONString []byte) ([]byte, error) {
+	var bdoc interface{}
+	bson.UnmarshalJSON(JSONString, &bdoc)
+
+	r, err := c.Database(dbName).Collection(collName).InsertOne(ctx, &bdoc)
 	if err != nil {
 		log.Error().
 			Str("database", dbName).
@@ -69,21 +77,11 @@ func (m *MongoDBProxy) Insert(dbName, collName string, JSONString []byte) ([]byt
 
 // Find will fetch all documents that match filter.
 // Find("okr", "okr_coll", []byte(`{ "id": 1 }`), *client, ctx)
-func (m *MongoDBProxy) Find(dbName, collName string, filter []byte) ([]byte, error) {
+func Find(ctx context.Context, c *mongo.Client, dbName, collName string, filter []byte) ([]byte, error) {
 	var bdoc interface{}
 	bson.UnmarshalJSON(filter, &bdoc)
 
-	client, ctx, cancelFunc, err := m.getConnection()
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("failed to connect to database")
-		return []byte{}, err
-	}
-	defer cancelFunc()
-	defer client.Disconnect(ctx)
-
-	cursor, err := client.Database(dbName).Collection(collName).Find(ctx, &bdoc)
+	cursor, err := c.Database(dbName).Collection(collName).Find(ctx, &bdoc)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -109,7 +107,7 @@ func (m *MongoDBProxy) Find(dbName, collName string, filter []byte) ([]byte, err
 }
 
 // Update will modify the fields defined in update in all documents that match filter.
-func (m *MongoDBProxy) Update(dbName, collName string, request []byte) ([]byte, error) {
+func Update(ctx context.Context, c *mongo.Client, dbName, collName string, request []byte) ([]byte, error) {
 	var parsed struct {
 		Filter interface{} `json:"filter"`
 		Update interface{} `json:"update"`
@@ -123,17 +121,7 @@ func (m *MongoDBProxy) Update(dbName, collName string, request []byte) ([]byte, 
 		return []byte{}, err
 	}
 
-	client, ctx, cancelFunc, err := m.getConnection()
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("failed to connect to database")
-		return []byte{}, err
-	}
-	defer cancelFunc()
-	defer client.Disconnect(ctx)
-
-	result, err := client.Database(dbName).Collection(collName).UpdateMany(ctx, parsed.Filter, parsed.Update)
+	result, err := c.Database(dbName).Collection(collName).UpdateMany(ctx, parsed.Filter, parsed.Update)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -152,25 +140,25 @@ func (m *MongoDBProxy) Update(dbName, collName string, request []byte) ([]byte, 
 }
 
 // HealthCheck will return the existing databases if connection is OK.
-func (m *MongoDBProxy) HealthCheck() ([]string, error) {
-	client, ctx, cancelFunc, err := m.getConnection()
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("failed to connect to database")
-		return []string{}, err
-	}
-	defer cancelFunc()
-	defer client.Disconnect(ctx)
-
-	databases, err := client.ListDatabaseNames(ctx, bson.M{})
+// Only context and client are required; the others are just back-compatibility for the DBWrapperFunc.
+func HealthCheck(ctx context.Context, c *mongo.Client, db, clt string, req []byte) ([]byte, error) {
+	databases, err := c.ListDatabaseNames(ctx, bson.M{})
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msgf("failed to get database names")
-		return []string{}, err
+		return []byte{}, err
 	}
-	return databases, nil
+
+	result, err := json.Marshal(struct {
+		Databases []string `json:"databases"`
+	}{Databases: databases})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to parse JSON response")
+		return []byte{}, err
+	}
+
+	return result, nil
 }
 
 func (m *MongoDBProxy) getConnection() (*mongo.Client, context.Context, context.CancelFunc, error) {

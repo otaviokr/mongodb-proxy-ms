@@ -1,7 +1,7 @@
 package web_test
 
 import (
-	"fmt"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/otaviokr/mongodb-proxy-ms/web"
 	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type TestCase struct {
@@ -135,20 +136,7 @@ type MockDBProxy struct {
 	HasError bool
 }
 
-func (m *MockDBProxy) Insert(dbName, collName string, JSONString []byte) ([]byte, error) {
-	// TODO Mock insert to create test case
+func (m *MockDBProxy) DBWrapperFunc(db, clt string, req []byte,
+	f func(ctx context.Context, c *mongo.Client, db, clt string, req []byte) ([]byte, error)) ([]byte, error) {
 	return []byte{}, nil
-}
-func (m *MockDBProxy) Find(dbName, collName string, filter []byte) ([]byte, error) {
-	return []byte(`{"id":1}`), nil
-}
-func (m *MockDBProxy) Update(dbName, collName string, request []byte) ([]byte, error) {
-	// TODO Mock update to create test case
-	return []byte{}, nil
-}
-func (m *MockDBProxy) HealthCheck() ([]string, error) {
-	if m.HasError {
-		return []string{}, fmt.Errorf("Failed as expected in test")
-	}
-	return []string{"a", "b", "c"}, nil
 }

@@ -46,9 +46,9 @@ func New(dbHost string, dbPort int, dbUser, dbPass string) *Server {
 
 	router.GET("/", ws.Home)
 	router.GET("/health", ws.Health)
-	router.POST("/insert/:db/:collection", ws.insert)
+	router.POST("/insert/:db/:collection", ws.Insert)
 	router.POST("/find/:db/:collection", ws.Find)
-	router.POST("/update/:db/:collection", ws.update)
+	router.POST("/update/:db/:collection", ws.Update)
 
 	return ws
 }
@@ -68,7 +68,8 @@ func (w *Server) Home(c *gin.Context) {
 
 // Health return the names of available databases or err is DB is down.
 func (w *Server) Health(c *gin.Context) {
-	result, err := w.mongo.HealthCheck()
+	//result, err := w.mongo.HealthCheck()
+	result, err := w.mongo.DBWrapperFunc("", "", nil, db.HealthCheck)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -77,14 +78,22 @@ func (w *Server) Health(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, struct {
-		Databases []string `json:"databases"`
-	}{result})
+	c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
+	c.Writer.WriteHeader(http.StatusOK)
+	c.Writer.Write(result)
 }
 
-func (w *Server) insert(c *gin.Context) {
+// Insert creeates a new entry in the database.
+func (w *Server) Insert(c *gin.Context) {
 	database := c.Params.ByName("db")
 	collection := c.Params.ByName("collection")
+
+	if msg := validateParams(database, collection); len(msg) > 0 {
+		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
+		c.Writer.WriteHeader(http.StatusBadRequest)
+		c.Writer.WriteString(msg)
+		return
+	}
 
 	request, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
@@ -95,7 +104,8 @@ func (w *Server) insert(c *gin.Context) {
 		return
 	}
 
-	result, err := w.mongo.Insert(database, collection, request)
+	//result, err := w.mongo.Insert(database, collection, request)
+	result, err := w.mongo.DBWrapperFunc(database, collection, request, db.Insert)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -112,17 +122,10 @@ func (w *Server) Find(c *gin.Context) {
 	database := c.Params.ByName("db")
 	collection := c.Params.ByName("collection")
 
-	if len(strings.TrimSpace(database)) == 0 {
+	if msg := validateParams(database, collection); len(msg) > 0 {
 		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
 		c.Writer.WriteHeader(http.StatusBadRequest)
-		c.Writer.WriteString("Missing database name")
-		return
-	}
-
-	if len(strings.TrimSpace(collection)) == 0 {
-		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
-		c.Writer.WriteHeader(http.StatusBadRequest)
-		c.Writer.WriteString("Missing collection name")
+		c.Writer.WriteString(msg)
 		return
 	}
 
@@ -139,7 +142,7 @@ func (w *Server) Find(c *gin.Context) {
 		return
 	}
 
-	result, err := w.mongo.Find(database, collection, filter)
+	result, err := w.mongo.DBWrapperFunc(database, collection, filter, db.Find)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -155,9 +158,17 @@ func (w *Server) Find(c *gin.Context) {
 	c.Writer.Write(result)
 }
 
-func (w *Server) update(c *gin.Context) {
+// Update changes values in an existing entry in the database.
+func (w *Server) Update(c *gin.Context) {
 	database := c.Params.ByName("db")
 	collection := c.Params.ByName("collection")
+
+	if msg := validateParams(database, collection); len(msg) > 0 {
+		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
+		c.Writer.WriteHeader(http.StatusBadRequest)
+		c.Writer.WriteString(msg)
+		return
+	}
 
 	request, err := ioutil.ReadAll(c.Request.Body)
 	if err != nil {
@@ -168,7 +179,7 @@ func (w *Server) update(c *gin.Context) {
 		return
 	}
 
-	result, err := w.mongo.Update(database, collection, request)
+	result, err := w.mongo.DBWrapperFunc(database, collection, request, db.Update)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -178,4 +189,14 @@ func (w *Server) update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+func validateParams(database, collection string) string {
+	if len(strings.TrimSpace(database)) == 0 {
+		return "Missing database name"
+	} else if len(strings.TrimSpace(collection)) == 0 {
+		return "Missing collection name"
+	} else {
+		return ""
+	}
 }
