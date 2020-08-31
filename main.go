@@ -7,6 +7,8 @@ import (
 	"github.com/otaviokr/mongodb-proxy-ms/web"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	_ "github.com/otaviokr/mongodb-proxy-ms/swagger" // only to triggger compilation; not used in the code here
 )
 
 func main() {
@@ -29,5 +31,5 @@ func main() {
 	}
 
 	router := web.New(dbHostname, dbPort, dbUsername, dbPassword)
-	router.Run(":8080")
+	router.Run(":8090")
 }

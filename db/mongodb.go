@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"encoding/json"
-
 	"github.com/rs/zerolog/log"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"gopkg.in/mgo.v2/bson"
@@ -56,116 +55,109 @@ func (m *MongoDBProxy) DBWrapperFunc(db, clt string, req []byte,
 
 // Insert will create a new document in collection collName in database dbName.
 // Insert("okr", "okr_coll", []byte(`{"id": 1,"name": "A green door","price": 12.50,"tags": ["home", "green"]}`), *client, ctx)
-func Insert(ctx context.Context, c *mongo.Client, dbName, collName string, JSONString []byte) ([]byte, error) {
-	var bdoc interface{}
-	bson.UnmarshalJSON(JSONString, &bdoc)
+func (m *MongoDBProxy) Insert(dbName, collName string, entry Quote) (*InsertResponse, error) {
+	client, ctx, cancelContext, err := m.getConnection()
+	if err != nil {
+		panic(err)
+	}
+	defer client.Disconnect(ctx)
+	defer cancelContext()
 
-	r, err := c.Database(dbName).Collection(collName).InsertOne(ctx, &bdoc)
+	r, err := client.Database(dbName).Collection(collName).InsertOne(ctx, &entry)
 	if err != nil {
 		log.Error().
 			Str("database", dbName).
 			Str("collection", collName).
 			Msgf("failed to insert into database")
-		return []byte{}, err
+		return nil, err
 	}
 
-	// TODO fmt.Printf("%+v\n", r)
 	log.Info().
 		Msgf("created new document: %s", fmt.Sprintf("%+v", r.InsertedID))
-	return []byte(fmt.Sprintf("%v", r.InsertedID)), nil
+	return &InsertResponse{
+		InsertID: r.InsertedID,
+	}, nil
 }
 
 // Find will fetch all documents that match filter.
 // Find("okr", "okr_coll", []byte(`{ "id": 1 }`), *client, ctx)
-func Find(ctx context.Context, c *mongo.Client, dbName, collName string, filter []byte) ([]byte, error) {
-	var bdoc interface{}
-	bson.UnmarshalJSON(filter, &bdoc)
+func (m *MongoDBProxy) Find(dbName, collName string, filter interface{}) (*FindResponse, error) {
+	client, ctx, cancelContext, err := m.getConnection()
+	if err != nil {
+		panic(err)
+	}
+	defer client.Disconnect(ctx)
+	defer cancelContext()
 
-	cursor, err := c.Database(dbName).Collection(collName).Find(ctx, &bdoc)
+	cursor, err := client.Database(dbName).Collection(collName).Find(ctx, filter)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msgf("failed to search in database")
-		return []byte{}, err
+		return nil, err
 	}
 
-	var items []string
-	for cursor.Next(ctx) {
-		item := cursor.Current
-		items = append(items, fmt.Sprintf("%+v\n", item))
-	}
-
-	results, err := json.Marshal(items)
+	var parsed []primitive.D
+	err = cursor.All(ctx, &parsed)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Msgf("failed to parse documents found")
-		return []byte{}, err
+		panic(err)
 	}
 
-	return results, nil
+	return &FindResponse{
+		Results: parsed,
+	}, nil
 }
 
 // Update will modify the fields defined in update in all documents that match filter.
-func Update(ctx context.Context, c *mongo.Client, dbName, collName string, request []byte) ([]byte, error) {
-	var parsed struct {
-		Filter interface{} `json:"filter"`
-		Update interface{} `json:"update"`
-	}
-
-	err := json.Unmarshal(request, &parsed)
+func (m *MongoDBProxy) Update(database, collection string, filter, entry interface{}) (*UpdateResponse, error) {
+	client, ctx, cancelContext, err := m.getConnection()
 	if err != nil {
-		log.Error().
-			Err(err).
-			Msgf("failed to parse request")
-		return []byte{}, err
+		panic(err)
 	}
+	defer client.Disconnect(ctx)
+	defer cancelContext()
 
-	result, err := c.Database(dbName).Collection(collName).UpdateMany(ctx, parsed.Filter, parsed.Update)
+	result, err := client.Database(database).Collection(collection).UpdateMany(ctx, filter, entry)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msgf("failed to perform update in database")
-		return []byte{}, err
+		return nil, err
 	}
 
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		log.Error().
-			Msgf("failed to parse the result as a JSON string")
-		return []byte{}, err
-	}
-
-	return resultJSON, nil
+	return &UpdateResponse{
+		Results: result,
+	}, nil
 }
 
 // HealthCheck will return the existing databases if connection is OK.
-// Only context and client are required; the others are just back-compatibility for the DBWrapperFunc.
-func HealthCheck(ctx context.Context, c *mongo.Client, db, clt string, req []byte) ([]byte, error) {
-	databases, err := c.ListDatabaseNames(ctx, bson.M{})
+func (m *MongoDBProxy) HealthCheck() (*HealthResponse, error) {
+	client, ctx, cancelContext, err := m.getConnection()
+	if err != nil {
+		panic(err)
+	}
+	defer client.Disconnect(ctx)
+	defer cancelContext()
+
+	databases, err := client.ListDatabaseNames(ctx, bson.M{})
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msgf("failed to get database names")
-		return []byte{}, err
+		return nil, err
 	}
 
-	result, err := json.Marshal(struct {
-		Databases []string `json:"databases"`
-	}{Databases: databases})
-	if err != nil {
-		log.Error().Err(err).Msg("failed to parse JSON response")
-		return []byte{}, err
-	}
-
-	return result, nil
+	return &HealthResponse{
+		Databases: databases,
+	}, nil
 }
 
 func (m *MongoDBProxy) getConnection() (*mongo.Client, context.Context, context.CancelFunc, error) {
 	client, err := mongo.NewClient(options.Client().ApplyURI(m.URI))
 	if err != nil {
 		log.Error().
-			Msgf("error connecting to database")
+			Err(err).
+			Msg("failed to connect to database")
 		return nil, nil, nil, err
 	}
 

@@ -13,7 +13,7 @@ services:
     build: .
     image: mongo-proxy:1.0
     ports:
-      - "8080:8080"
+      - "8080:8090"
     environment:
       - GIN_MODE=release
       - MONGODB_HOST=mongodb
@@ -25,6 +25,22 @@ services:
       - mongonet
     depends_on:
       - mongodb
+
+  mongo-proxy-swagger:
+    image: swaggerapi/swagger-ui
+    ports:
+      - "8082:8080"
+    environment:
+      - BASE_URL=/swagger
+      - SWAGGER_JSON=/mnt/swagger.json
+    volumes:
+      - ./swagger.json:/mnt/swagger.json
+    restart: always
+    networks:
+      - mongonet
+    depends_on:
+      - mongodb
+      - mongo-proxy
 
 networks:
   mongonet:

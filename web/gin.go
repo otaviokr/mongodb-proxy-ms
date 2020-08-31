@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -8,12 +9,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/otaviokr/mongodb-proxy-ms/db"
 	"github.com/rs/zerolog/log"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"gopkg.in/mgo.v2/bson"
 )
 
 // Server wraps everything related to web server we provide.
 type Server struct {
 	router *gin.Engine
 	mongo  db.Proxy
+}
+
+// DatabaseDetailsURI holds the database information passed in URI.
+type DatabaseDetailsURI struct {
+	Database   string `json:"Database" uri:"Database" binding:"required"`
+	Collection string `json:"Collection" uri:"Collection" binding:"required"`
 }
 
 // NewCustom creates a new instance of Server.
@@ -46,9 +55,9 @@ func New(dbHost string, dbPort int, dbUser, dbPass string) *Server {
 
 	router.GET("/", ws.Home)
 	router.GET("/health", ws.Health)
-	router.POST("/insert/:db/:collection", ws.Insert)
-	router.POST("/find/:db/:collection", ws.Find)
-	router.POST("/update/:db/:collection", ws.Update)
+	router.POST("/insert/:Database/:Collection", ws.Insert)
+	router.POST("/find/:Database/:Dollection", ws.Find)
+	router.POST("/update/:Database/:Collection", ws.Update)
 
 	return ws
 }
@@ -63,32 +72,38 @@ func (w *Server) Run(address string) {
 
 // Home serves requests for home (index).
 func (w *Server) Home(c *gin.Context) {
-	c.JSON(http.StatusOK, map[string]string{"Hello": "World"})
+	response := db.HomeResponse{
+		Hello: "World",
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // Health return the names of available databases or err is DB is down.
 func (w *Server) Health(c *gin.Context) {
-	//result, err := w.mongo.HealthCheck()
-	result, err := w.mongo.DBWrapperFunc("", "", nil, db.HealthCheck)
+	result, err := w.mongo.HealthCheck()
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msgf("failed to connect to mongodb")
-		c.JSON(http.StatusInternalServerError, "")
+		c.JSON(http.StatusInternalServerError, db.HealthResponse{})
 		return
 	}
 
-	c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
-	c.Writer.WriteHeader(http.StatusOK)
-	c.Writer.Write(result)
+	c.JSON(http.StatusOK, result)
 }
 
 // Insert creeates a new entry in the database.
 func (w *Server) Insert(c *gin.Context) {
-	database := c.Params.ByName("db")
-	collection := c.Params.ByName("collection")
+	var databaseDetails DatabaseDetailsURI
+	err := c.ShouldBindUri(&databaseDetails)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msgf("failed to parse URI")
+		c.JSON(http.StatusBadRequest, gin.H{"msg": err})
+	}
 
-	if msg := validateParams(database, collection); len(msg) > 0 {
+	if msg := validateParams(databaseDetails.Database, databaseDetails.Collection); len(msg) > 0 {
 		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
 		c.Writer.WriteHeader(http.StatusBadRequest)
 		c.Writer.WriteString(msg)
@@ -104,8 +119,13 @@ func (w *Server) Insert(c *gin.Context) {
 		return
 	}
 
-	//result, err := w.mongo.Insert(database, collection, request)
-	result, err := w.mongo.DBWrapperFunc(database, collection, request, db.Insert)
+	var quote db.Quote
+	err = json.Unmarshal(request, &quote)
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := w.mongo.Insert(databaseDetails.Database, databaseDetails.Collection, quote)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -114,18 +134,29 @@ func (w *Server) Insert(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, result)
+	parsedJSON := db.InsertResponse{
+		InsertID: result.InsertID,
+	}
+
+	c.JSON(http.StatusOK, parsedJSON)
 }
 
 // Find serves requests for fetching data in database.
 func (w *Server) Find(c *gin.Context) {
-	database := c.Params.ByName("db")
-	collection := c.Params.ByName("collection")
+	var databaseDetails DatabaseDetailsURI
+	err := c.ShouldBindUri(&databaseDetails)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msgf("failed to parse URI")
+		c.JSON(http.StatusBadRequest, gin.H{"msg": err})
+	}
 
-	if msg := validateParams(database, collection); len(msg) > 0 {
-		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
-		c.Writer.WriteHeader(http.StatusBadRequest)
-		c.Writer.WriteString(msg)
+	if msg := validateParams(databaseDetails.Database, databaseDetails.Collection); len(msg) > 0 {
+		response := db.FindResponse{
+			Errors: msg,
+		}
+		c.JSON(http.StatusBadRequest, response)
 		return
 	}
 
@@ -142,7 +173,14 @@ func (w *Server) Find(c *gin.Context) {
 		return
 	}
 
-	result, err := w.mongo.DBWrapperFunc(database, collection, filter, db.Find)
+	var filterParsed interface{}
+	//err = json.Unmarshal(filter, &filterParsed)
+	err = bson.UnmarshalJSON(filter, &filterParsed)
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := w.mongo.Find(databaseDetails.Database, databaseDetails.Collection, filterParsed)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -153,17 +191,21 @@ func (w *Server) Find(c *gin.Context) {
 		return
 	}
 
-	c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
-	c.Writer.WriteHeader(http.StatusOK)
-	c.Writer.Write(result)
+	c.JSON(http.StatusOK, result)
 }
 
 // Update changes values in an existing entry in the database.
 func (w *Server) Update(c *gin.Context) {
-	database := c.Params.ByName("db")
-	collection := c.Params.ByName("collection")
+	var databaseDetails DatabaseDetailsURI
+	err := c.ShouldBindUri(&databaseDetails)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msgf("failed to parse URI")
+		c.JSON(http.StatusBadRequest, gin.H{"msg": err})
+	}
 
-	if msg := validateParams(database, collection); len(msg) > 0 {
+	if msg := validateParams(databaseDetails.Database, databaseDetails.Collection); len(msg) > 0 {
 		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
 		c.Writer.WriteHeader(http.StatusBadRequest)
 		c.Writer.WriteString(msg)
@@ -179,7 +221,16 @@ func (w *Server) Update(c *gin.Context) {
 		return
 	}
 
-	result, err := w.mongo.DBWrapperFunc(database, collection, request, db.Update)
+	var parsed struct {
+		F primitive.D
+		R primitive.D
+	}
+	err = json.Unmarshal(request, &parsed)
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := w.mongo.Update(databaseDetails.Database, databaseDetails.Collection, parsed.F, parsed.R)
 	if err != nil {
 		log.Error().
 			Err(err).
