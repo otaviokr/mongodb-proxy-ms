@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/otaviokr/mongodb-proxy-ms/db"
 	"github.com/rs/zerolog/log"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // Server wraps everything related to web server we provide.
@@ -170,10 +170,15 @@ func (w *Server) Find(c *gin.Context) {
 	}
 
 	var filterParsed interface{}
-	//err = json.Unmarshal(filter, &filterParsed)
-	err = bson.UnmarshalJSON(filter, &filterParsed)
-	if err != nil {
-		panic(err)
+
+	if len(filter) == 0 {
+		log.Debug().Msg("Filter is empty. Adapting it to get all documents")
+		filterParsed = bson.M{}
+	} else {
+		err = bson.UnmarshalExtJSON(filter, true, &filterParsed)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	result, err := w.mongo.Find(databaseDetails.Database, databaseDetails.Collection, filterParsed)
@@ -216,7 +221,8 @@ func (w *Server) Update(c *gin.Context) {
 		panic(err)
 	}
 
-	result, err := w.mongo.Update(databaseDetails.Database, databaseDetails.Collection, parsed.Filter, parsed.Updates)
+	update := bson.D{{"$set", parsed.Updates}}
+	result, err := w.mongo.Update(databaseDetails.Database, databaseDetails.Collection, parsed.Filter, update)
 	if err != nil {
 		log.Error().
 			Err(err).
