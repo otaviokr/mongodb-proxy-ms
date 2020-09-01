@@ -1,7 +1,7 @@
 package db
 
 import (
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -26,13 +26,13 @@ type HomeResponse struct {
 
 // InsertResponse gives the ObjectID of the inserted data.
 type InsertResponse struct {
-	InsertID interface{} `json:"InsertedID"`
+	InsertedID interface{} `json:"InsertedID"`
 }
 
 // FindResponse returns the data found in database.
 type FindResponse struct {
-	Results []primitive.D `json:"results,omitempty"`
-	Errors  string        `json:"errors,omitempty"`
+	Results []bson.M `json:"results,omitempty"`
+	Errors  string   `json:"errors,omitempty"`
 }
 
 // UpdateResponse gives the result of the update.
@@ -42,6 +42,7 @@ type UpdateResponse struct {
 
 // Proxy is the abstraction of what you can do with the database.
 type Proxy interface {
+	GetURI() string
 	HealthCheck() (*HealthResponse, error)
 	Insert(database, collection string, entry Quote) (*InsertResponse, error)
 	Find(database, collection string, filter interface{}) (*FindResponse, error)

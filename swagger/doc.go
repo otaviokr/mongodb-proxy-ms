@@ -7,7 +7,7 @@
 //     Schemes: http
 //     BasePath: /
 //     Version: 1.0.0
-//     Host: mongo-proxy:8090
+//     Host: 192.168.0.109:8080
 //
 //     Contact: Otavio Krambeck <rofatto@gmail.com> https://otaviokr.github.io
 //

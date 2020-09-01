@@ -31,5 +31,5 @@ func main() {
 	}
 
 	router := web.New(dbHostname, dbPort, dbUsername, dbPassword)
-	router.Run(":8090")
+	router.Run(":8080")
 }

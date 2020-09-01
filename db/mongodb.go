@@ -7,10 +7,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"gopkg.in/mgo.v2/bson"
 )
 
 // MongoDBProxy manages everything related to MongoDB connection, queries etc.
@@ -21,7 +20,7 @@ type MongoDBProxy struct {
 }
 
 // NewConnection instantiates the MongoDB proxy connector (client, context etc.)
-func NewConnection(hostname string, port int, username, password string) (*MongoDBProxy, error) {
+func NewConnection(hostname string, port int, username, password string) (Proxy, error) {
 	// port 27017
 	URI := fmt.Sprintf("mongodb://%s%s%s",
 		getUserCredentialForConnectionString(username, password),
@@ -75,7 +74,7 @@ func (m *MongoDBProxy) Insert(dbName, collName string, entry Quote) (*InsertResp
 	log.Info().
 		Msgf("created new document: %s", fmt.Sprintf("%+v", r.InsertedID))
 	return &InsertResponse{
-		InsertID: r.InsertedID,
+		InsertedID: r.InsertedID,
 	}, nil
 }
 
@@ -97,7 +96,7 @@ func (m *MongoDBProxy) Find(dbName, collName string, filter interface{}) (*FindR
 		return nil, err
 	}
 
-	var parsed []primitive.D
+	var parsed []bson.M
 	err = cursor.All(ctx, &parsed)
 	if err != nil {
 		panic(err)
@@ -150,6 +149,11 @@ func (m *MongoDBProxy) HealthCheck() (*HealthResponse, error) {
 	return &HealthResponse{
 		Databases: databases,
 	}, nil
+}
+
+// GetURI returns the URI for the database connection.
+func (m *MongoDBProxy) GetURI() string {
+	return m.URI
 }
 
 func (m *MongoDBProxy) getConnection() (*mongo.Client, context.Context, context.CancelFunc, error) {

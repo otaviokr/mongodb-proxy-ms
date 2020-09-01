@@ -70,6 +70,6 @@ func TestNewConnection(t *testing.T) {
 			t.FailNow()
 		}
 
-		assert.Equal(t, tc.expected, actual.URI, "URI is not the same")
+		assert.Equal(t, tc.expected, actual.GetURI(), "URI is not the same")
 	}
 }

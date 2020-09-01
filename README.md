@@ -18,6 +18,17 @@ docker run -d -p 8080:8080 --env GIN_MODE=debug --env MONGODB_HOST=mongodb --nam
 ```
 ## Run this container together with a MongoDB container (and Swagger-UI)
 
+Before you start, make sure you have the correct hostname defined in `swagger/doc.go` :
+```bash
+//     Schemes: http
+//     BasePath: /
+//     Version: 1.0.0
+//     Host: 192.168.0.109:8080
+//
+//     Contact: Otavio Krambeck <rofatto@gmail.com> https://otaviokr.github.io
+//
+```
+
 The script `startup.sh` will generate the JSON file and then run the `docker-compose.yml` to start all services.
 
 ```bash

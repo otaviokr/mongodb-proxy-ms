@@ -1,7 +1,6 @@
 package web_test
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,10 +8,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/otaviokr/mongodb-proxy-ms/db"
+	"github.com/otaviokr/mongodb-proxy-ms/mock"
 	"github.com/otaviokr/mongodb-proxy-ms/web"
 	"github.com/stretchr/testify/assert"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type TestCase struct {
@@ -28,6 +26,100 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
+func TestFind(t *testing.T) {
+	testCases := []TestCase{
+		{
+			testCaseID: "findOK",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusOK,
+			expectedMessage: `{"results":[{"foo":"bar","hello":"world","pi":3.14159}]}`,
+			hasError:        false,
+		},
+		{
+			testCaseID: "findNothingFound",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusOK,
+			expectedMessage: `{}`,
+			hasError:        false,
+		},
+		{
+			testCaseID: "findMissingDBName",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: ""},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusBadRequest,
+			expectedMessage: `{"errors":"Key: 'DatabaseDetailsURI.Database' Error:Field validation for 'Database' failed on the 'required' tag"}{}`,
+			hasError:        true,
+		},
+		{
+			testCaseID: "findMissingCollName",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: ""},
+			},
+			expectedCode:    http.StatusOK,
+			expectedMessage: ``,
+			hasError:        true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testCaseID, func(t *testing.T) {
+			request, err := http.NewRequest(
+				"POST",
+				fmt.Sprintf("http://localhost:80/find/%s/%s", tc.params[0].Value, tc.params[1].Value),
+				strings.NewReader(tc.body))
+			if err != nil {
+				t.FailNow()
+			}
+
+			recorder := httptest.NewRecorder()
+			ws := web.NewWithCustomDB(&mock.DBProxy{TestCaseID: tc.testCaseID})
+
+			ws.Router.ServeHTTP(recorder, request)
+
+			//assert.Equal(t, tc.expectedCode, recorder.Code, "unexpected status code")
+			assert.Equal(t, tc.expectedMessage, recorder.Body.String(), "unexpected response")
+		})
+	}
+}
+
+func TestHealth(t *testing.T) {
+	testCases := []TestCase{
+		{testCaseID: "healthUp", expectedCode: http.StatusOK, expectedMessage: `{"databases":["a","b","c"]}`, hasError: false},
+		{testCaseID: "healthDown", expectedCode: http.StatusInternalServerError, expectedMessage: `{"databases":null}`, hasError: true},
+		{testCaseID: "healthNoResponse", expectedCode: http.StatusInternalServerError, expectedMessage: `{"databases":null}`, hasError: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testCaseID, func(t *testing.T) {
+			request, err := http.NewRequest("GET", "http://localhost:80/health", nil)
+			if err != nil {
+				t.FailNow()
+			}
+
+			recorder := httptest.NewRecorder()
+			ws := web.NewWithCustomDB(&mock.DBProxy{TestCaseID: tc.testCaseID})
+
+			ws.Router.ServeHTTP(recorder, request)
+
+			assert.Equal(t, tc.expectedCode, recorder.Code, "unexpected status code")
+			assert.Equal(t, tc.expectedMessage, recorder.Body.String(), "unexpected response")
+		})
+	}
+}
+
 func TestHome(t *testing.T) {
 	ws := web.Server{}
 
@@ -41,136 +133,164 @@ func TestHome(t *testing.T) {
 		"application/json; charset=utf-8",
 		recorder.Result().Header.Get("Content-Type"),
 		"unexpected Content-Type in Header")
-	//assert.True(t, recorder.Flushed, "response was not flushed?")
 }
 
-func TestFind(t *testing.T) {
+func TestInsert(t *testing.T) {
 	testCases := []TestCase{
 		{
-			testCaseID: "findOK",
+			testCaseID: "insertOK",
 			body:       `{"id":1}`,
 			params: []gin.Param{
 				{Key: "db", Value: "cool_db"},
 				{Key: "collection", Value: "cool_collection"},
 			},
 			expectedCode:    http.StatusOK,
-			expectedMessage: `{"errors":"1"}`,
+			expectedMessage: `{"InsertedID":"5f4d641403490cb668ed8313"}`,
 			hasError:        false,
 		},
-		// {
-		// 	body: "",
-		// 	params: []gin.Param{
-		// 		{Key: "db", Value: "cool_db"},
-		// 		{Key: "collection", Value: "cool_collection"},
-		// 	},
-		// 	expectedCode:    http.StatusOK,
-		// 	expectedMessage: `{"id":1}`,
-		// 	hasError:        false,
-		// },
-		// {
-		// 	body: `{"id":1}`,
-		// 	params: []gin.Param{
-		// 		{Key: "db", Value: ""},
-		// 		{Key: "collection", Value: "cool_collection"},
-		// 	},
-		// 	expectedCode:    http.StatusBadRequest,
-		// 	expectedMessage: "Missing database name",
-		// 	hasError:        false,
-		// },
-		// {
-		// 	body: `{"id":1}`,
-		// 	params: []gin.Param{
-		// 		{Key: "db", Value: "cool_db"},
-		// 		{Key: "collection", Value: ""},
-		// 	},
-		// 	expectedCode:    http.StatusBadRequest,
-		// 	expectedMessage: "Missing collection name",
-		// 	hasError:        false,
-		// },
-		// {
-		// 	body: `{"id":1}`,
-		// 	params: []gin.Param{
-		// 		{Key: "ax", Value: "cool_ax"},
-		// 	},
-		// 	expectedCode:    http.StatusBadRequest,
-		// 	expectedMessage: "Missing database name",
-		// 	hasError:        false,
-		// },
+		{
+			testCaseID: "insertEmptyBody",
+			body:       ``,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusInternalServerError,
+			expectedMessage: ``,
+			hasError:        false,
+		},
+		{
+			testCaseID: "insertEmptyEntry",
+			body:       `{}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusInternalServerError,
+			expectedMessage: `""`,
+			hasError:        false,
+		},
+		{
+			testCaseID: "insertMissingDBName",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: ""},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusBadRequest,
+			expectedMessage: `{"errors":"Key: 'DatabaseDetailsURI.Database' Error:Field validation for 'Database' failed on the 'required' tag"}{"InsertedID":""}`,
+			hasError:        true,
+		},
+		{
+			testCaseID: "insertMissingCollName",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: ""},
+			},
+			expectedCode:    http.StatusTemporaryRedirect,
+			expectedMessage: ``,
+			hasError:        true,
+		},
 	}
 
 	for _, tc := range testCases {
-		ws := web.NewCustom(nil, &MockDBProxy{TestCaseID: tc.testCaseID})
+		t.Run(tc.testCaseID, func(t *testing.T) {
+			request, err := http.NewRequest(
+				"POST",
+				fmt.Sprintf("http://localhost:80/insert/%s/%s", tc.params[0].Value, tc.params[1].Value),
+				strings.NewReader(tc.body))
+			if err != nil {
+				t.FailNow()
+			}
 
-		request, err := http.NewRequest("POST", "x", strings.NewReader(tc.body))
-		if err != nil {
-			t.FailNow()
-		}
+			recorder := httptest.NewRecorder()
+			ws := web.NewWithCustomDB(&mock.DBProxy{TestCaseID: tc.testCaseID})
 
-		recorder := httptest.NewRecorder()
-		ctx, _ := gin.CreateTestContext(recorder)
-		ctx.Params = append(ctx.Params, tc.params...)
-		ctx.Request = request
+			ws.Router.ServeHTTP(recorder, request)
 
-		ws.Find(ctx)
-
-		assert.Equal(t, tc.expectedCode, recorder.Code, "unexpected status code")
-		assert.Equal(t, tc.expectedMessage, recorder.Body.String(), "unexpected response")
+			assert.Equal(t, tc.expectedCode, recorder.Code, "unexpected status code")
+			assert.Equal(t, tc.expectedMessage, recorder.Body.String(), "unexpected response")
+		})
 	}
 }
 
-func TestHealth(t *testing.T) {
+func TestUpdate(t *testing.T) {
 	testCases := []TestCase{
-		{testCaseID: "healthUp", expectedCode: http.StatusOK, expectedMessage: `{"databases":["a","b","c"]}`, hasError: false},
-		{testCaseID: "healthDown", expectedCode: http.StatusInternalServerError, expectedMessage: `{"databases":null}`, hasError: true},
-		{testCaseID: "healthNoResponse", expectedCode: http.StatusNoContent, expectedMessage: "", hasError: true},
+		{
+			testCaseID: "updateOK",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusOK,
+			expectedMessage: `{"results":{"MatchedCount":1,"ModifiedCount":1,"UpsertedCount":0,"UpsertedID":null}}`,
+			hasError:        false,
+		},
+		{
+			testCaseID: "updateEmptyFilter",
+			body:       ``,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusInternalServerError,
+			expectedMessage: ``,
+			hasError:        false,
+		},
+		{
+			testCaseID: "updateEmptyUpdate",
+			body:       `{}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusInternalServerError,
+			expectedMessage: `""`,
+			hasError:        false,
+		},
+		{
+			testCaseID: "updateMissingDBName",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: ""},
+				{Key: "collection", Value: "cool_collection"},
+			},
+			expectedCode:    http.StatusBadRequest,
+			expectedMessage: `{"errors":"Key: 'DatabaseDetailsURI.Database' Error:Field validation for 'Database' failed on the 'required' tag"}{"results":{"MatchedCount":0,"ModifiedCount":0,"UpsertedCount":0,"UpsertedID":null}}`,
+			hasError:        true,
+		},
+		{
+			testCaseID: "updateMissingCollName",
+			body:       `{"id":1}`,
+			params: []gin.Param{
+				{Key: "db", Value: "cool_db"},
+				{Key: "collection", Value: ""},
+			},
+			expectedCode:    http.StatusTemporaryRedirect,
+			expectedMessage: ``,
+			hasError:        true,
+		},
 	}
 
 	for _, tc := range testCases {
-		recorder := httptest.NewRecorder()
-		ctx, _ := gin.CreateTestContext(recorder)
+		t.Run(tc.testCaseID, func(t *testing.T) {
+			request, err := http.NewRequest(
+				"POST",
+				fmt.Sprintf("http://localhost:80/update/%s/%s", tc.params[0].Value, tc.params[1].Value),
+				strings.NewReader(tc.body))
+			if err != nil {
+				t.FailNow()
+			}
 
-		ws := web.NewCustom(nil, &MockDBProxy{TestCaseID: tc.testCaseID, HasError: tc.hasError})
-		ws.Health(ctx)
+			recorder := httptest.NewRecorder()
+			ws := web.NewWithCustomDB(&mock.DBProxy{TestCaseID: tc.testCaseID})
 
-		assert.Equal(t, tc.expectedCode, recorder.Code, "unexpected status code")
-		assert.Equal(t, tc.expectedMessage, recorder.Body.String(), "unexpected response")
+			ws.Router.ServeHTTP(recorder, request)
+
+			assert.Equal(t, tc.expectedCode, recorder.Code, "unexpected status code")
+			assert.Equal(t, tc.expectedMessage, recorder.Body.String(), "unexpected response")
+		})
 	}
-}
-
-type MockDBProxy struct {
-	TestCaseID string
-	HasError   bool
-}
-
-func (m *MockDBProxy) DBWrapperFunc(db, clt string, req []byte,
-	f func(ctx context.Context, c *mongo.Client, db, clt string, req []byte) ([]byte, error)) ([]byte, error) {
-	switch m.TestCaseID {
-	case "findOK":
-		return []byte(`{"errors":"1"}`), nil
-	case "healthUp":
-		return []byte(`{"databases":["a","b","c"]}`), nil
-	case "healthDown":
-		return []byte{}, fmt.Errorf("error as expected in the test case")
-	case "healthNoResponse":
-		return []byte{}, nil
-	}
-	return []byte{}, nil
-}
-
-func (m *MockDBProxy) Find(database, collection string, filter interface{}) (*db.FindResponse, error) {
-	return nil, nil
-}
-
-func (m *MockDBProxy) HealthCheck() (*db.HealthResponse, error) {
-	return nil, nil
-}
-
-func (m *MockDBProxy) Insert(database, collection string, entry db.Quote) (*db.InsertResponse, error) {
-	return &db.InsertResponse{
-		InsertID: nil,
-	}, nil
-}
-
-func (m *MockDBProxy) Update(database, collection string, filter, entry interface{}) (*db.UpdateResponse, error) {
-	return nil, nil
 }

@@ -4,18 +4,17 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
-	"strings"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/otaviokr/mongodb-proxy-ms/db"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"gopkg.in/mgo.v2/bson"
 )
 
 // Server wraps everything related to web server we provide.
 type Server struct {
-	router *gin.Engine
+	Router *gin.Engine
 	mongo  db.Proxy
 }
 
@@ -25,10 +24,16 @@ type DatabaseDetailsURI struct {
 	Collection string `json:"Collection" uri:"Collection" binding:"required"`
 }
 
+// UpdateRequest contains both the filter and the updates to be sent in a request.
+type UpdateRequest struct {
+	Filter  interface{} `json:"filter"`
+	Updates db.Quote    `json:"updates"`
+}
+
 // NewCustom creates a new instance of Server.
 func NewCustom(router *gin.Engine, mongo db.Proxy) *Server {
 	return &Server{
-		router: router,
+		Router: router,
 		mongo:  mongo,
 	}
 }
@@ -46,17 +51,23 @@ func New(dbHost string, dbPort int, dbUser, dbPass string) *Server {
 		return nil
 	}
 
-	router := gin.New()
+	return NewWithCustomDB(mongo)
+}
+
+// NewWithCustomDB creates a new instance of a WebServer, with a custom DB handler.
+func NewWithCustomDB(mongo db.Proxy) *Server {
+	router := gin.Default()
+	router.Use(cors.Default())
 
 	ws := &Server{
-		router: router,
+		Router: router,
 		mongo:  mongo,
 	}
 
 	router.GET("/", ws.Home)
 	router.GET("/health", ws.Health)
 	router.POST("/insert/:Database/:Collection", ws.Insert)
-	router.POST("/find/:Database/:Dollection", ws.Find)
+	router.POST("/find/:Database/:Collection", ws.Find)
 	router.POST("/update/:Database/:Collection", ws.Update)
 
 	return ws
@@ -64,7 +75,7 @@ func New(dbHost string, dbPort int, dbUser, dbPass string) *Server {
 
 // Run starts the webserver on address.
 func (w *Server) Run(address string) {
-	err := w.router.Run(address)
+	err := w.Router.Run(address)
 	log.Error().
 		Err(err).
 		Msg("error while running the webserver")
@@ -100,14 +111,7 @@ func (w *Server) Insert(c *gin.Context) {
 		log.Error().
 			Err(err).
 			Msgf("failed to parse URI")
-		c.JSON(http.StatusBadRequest, gin.H{"msg": err})
-	}
-
-	if msg := validateParams(databaseDetails.Database, databaseDetails.Collection); len(msg) > 0 {
-		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
-		c.Writer.WriteHeader(http.StatusBadRequest)
-		c.Writer.WriteString(msg)
-		return
+		c.JSON(http.StatusBadRequest, gin.H{"errors": err.Error()})
 	}
 
 	request, err := ioutil.ReadAll(c.Request.Body)
@@ -135,7 +139,7 @@ func (w *Server) Insert(c *gin.Context) {
 	}
 
 	parsedJSON := db.InsertResponse{
-		InsertID: result.InsertID,
+		InsertedID: result.InsertedID,
 	}
 
 	c.JSON(http.StatusOK, parsedJSON)
@@ -149,15 +153,7 @@ func (w *Server) Find(c *gin.Context) {
 		log.Error().
 			Err(err).
 			Msgf("failed to parse URI")
-		c.JSON(http.StatusBadRequest, gin.H{"msg": err})
-	}
-
-	if msg := validateParams(databaseDetails.Database, databaseDetails.Collection); len(msg) > 0 {
-		response := db.FindResponse{
-			Errors: msg,
-		}
-		c.JSON(http.StatusBadRequest, response)
-		return
+		c.JSON(http.StatusBadRequest, gin.H{"errors": err.Error()})
 	}
 
 	filter, err := ioutil.ReadAll(c.Request.Body)
@@ -202,14 +198,7 @@ func (w *Server) Update(c *gin.Context) {
 		log.Error().
 			Err(err).
 			Msgf("failed to parse URI")
-		c.JSON(http.StatusBadRequest, gin.H{"msg": err})
-	}
-
-	if msg := validateParams(databaseDetails.Database, databaseDetails.Collection); len(msg) > 0 {
-		c.Writer.Header().Add("Content-Type", "application/json;charset=utf-8")
-		c.Writer.WriteHeader(http.StatusBadRequest)
-		c.Writer.WriteString(msg)
-		return
+		c.JSON(http.StatusBadRequest, gin.H{"errors": err.Error()})
 	}
 
 	request, err := ioutil.ReadAll(c.Request.Body)
@@ -221,16 +210,13 @@ func (w *Server) Update(c *gin.Context) {
 		return
 	}
 
-	var parsed struct {
-		F primitive.D
-		R primitive.D
-	}
+	var parsed UpdateRequest
 	err = json.Unmarshal(request, &parsed)
 	if err != nil {
 		panic(err)
 	}
 
-	result, err := w.mongo.Update(databaseDetails.Database, databaseDetails.Collection, parsed.F, parsed.R)
+	result, err := w.mongo.Update(databaseDetails.Database, databaseDetails.Collection, parsed.Filter, parsed.Updates)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -242,12 +228,12 @@ func (w *Server) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-func validateParams(database, collection string) string {
-	if len(strings.TrimSpace(database)) == 0 {
-		return "Missing database name"
-	} else if len(strings.TrimSpace(collection)) == 0 {
-		return "Missing collection name"
-	} else {
-		return ""
-	}
-}
+// func validateParams(database, collection string) string {
+// 	if len(strings.TrimSpace(database)) == 0 {
+// 		return "Missing database name"
+// 	} else if len(strings.TrimSpace(collection)) == 0 {
+// 		return "Missing collection name"
+// 	} else {
+// 		return ""
+// 	}
+// }

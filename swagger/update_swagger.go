@@ -1,6 +1,9 @@
 package swagger
 
-import "github.com/otaviokr/mongodb-proxy-ms/db"
+import (
+	"github.com/otaviokr/mongodb-proxy-ms/db"
+	"github.com/otaviokr/mongodb-proxy-ms/web"
+)
 
 // swagger:route POST /update/{Database}/{Collection} update
 // Update changes the values in one or more entries in the collection.
@@ -24,5 +27,5 @@ type updateParamsWrapper struct {
 	Collection string
 
 	// in:body
-	Body db.Quote
+	Body web.UpdateRequest
 }
