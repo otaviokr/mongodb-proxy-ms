@@ -9,7 +9,9 @@ import (
 type Quote struct {
 	Publications    int    `json:"publications"`
 	LastPublished   int64  `json:"last_published"`
+	OriginalTitle   string `json:"original_title"`
 	OriginalQuote   string `json:"original_quote"`
+	TranslatedTitle string `json:"translated_title"`
 	TranslatedQuote string `json:"translated_quote"`
 	Author          string `json:"author"`
 }
