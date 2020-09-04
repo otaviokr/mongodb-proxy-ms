@@ -52,6 +52,38 @@ func (m *MongoDBProxy) DBWrapperFunc(db, clt string, req []byte,
 	return f(ctx, client, db, clt, req)
 }
 
+// Aggregate will compare all entries in a collection and returns the consolidated data..
+func (m *MongoDBProxy) Aggregate(dbName, collName string, filter interface{}) (*AggregateResponse, error) {
+	client, ctx, cancelContext, err := m.getConnection()
+	if err != nil {
+		panic(err)
+	}
+	defer client.Disconnect(ctx)
+	defer cancelContext()
+
+	cursor, err := client.Database(dbName).Collection(collName).Aggregate(ctx, filter)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msgf("failed to aggregate in database")
+		return nil, err
+	}
+
+	var parsed []AggregateResponse
+	err = cursor.All(ctx, &parsed)
+	if err != nil {
+		panic(err)
+	}
+
+	if len(parsed) < 1 {
+		return &AggregateResponse{
+			MinPublications: 0,
+		}, nil
+	}
+
+	return &parsed[0], nil
+}
+
 // Insert will create a new document in collection collName in database dbName.
 // Insert("okr", "okr_coll", []byte(`{"id": 1,"name": "A green door","price": 12.50,"tags": ["home", "green"]}`), *client, ctx)
 func (m *MongoDBProxy) Insert(dbName, collName string, entry Quote) (*InsertResponse, error) {

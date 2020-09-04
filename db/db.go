@@ -7,13 +7,19 @@ import (
 
 // Quote represents the central collection of the solution, where the quotes used by the Twitter bot is used.
 type Quote struct {
-	Publications    int    `json:"publications"`
-	LastPublished   int64  `json:"last_published"`
+	Publications    int    `json:"publications,omitempty" bson:"publications,omitempty"`
+	LastPublished   int64  `json:"last_published,omitempty" bson:"last_published,omitempty"`
 	OriginalTitle   string `json:"original_title"`
 	OriginalQuote   string `json:"original_quote"`
 	TranslatedTitle string `json:"translated_title"`
 	TranslatedQuote string `json:"translated_quote"`
 	Author          string `json:"author"`
+}
+
+// AggregateResponse has the output from a aggregation.
+type AggregateResponse struct {
+	ID              interface{} `json:"_id"`
+	MinPublications int         `json:"min_publications"`
 }
 
 // HealthResponse shows the databases available.
@@ -46,6 +52,7 @@ type UpdateResponse struct {
 type Proxy interface {
 	GetURI() string
 	HealthCheck() (*HealthResponse, error)
+	Aggregate(database, collection string, filter interface{}) (*AggregateResponse, error)
 	Insert(database, collection string, entry Quote) (*InsertResponse, error)
 	Find(database, collection string, filter interface{}) (*FindResponse, error)
 	Update(database, collection string, filter, entry interface{}) (*UpdateResponse, error)

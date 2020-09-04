@@ -66,6 +66,7 @@ func NewWithCustomDB(mongo db.Proxy) *Server {
 
 	router.GET("/", ws.Home)
 	router.GET("/health", ws.Health)
+	router.POST("/aggregate/:Database/:Collection", ws.Aggregate)
 	router.POST("/insert/:Database/:Collection", ws.Insert)
 	router.POST("/find/:Database/:Collection", ws.Find)
 	router.POST("/update/:Database/:Collection", ws.Update)
@@ -79,6 +80,61 @@ func (w *Server) Run(address string) {
 	log.Error().
 		Err(err).
 		Msg("error while running the webserver")
+}
+
+// Aggregate returns the result of an aggregation in MongoDB.
+func (w *Server) Aggregate(c *gin.Context) {
+	var databaseDetails DatabaseDetailsURI
+	err := c.ShouldBindUri(&databaseDetails)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msgf("failed to parse URI")
+		c.JSON(http.StatusBadRequest, gin.H{"errors": err.Error()})
+	}
+
+	_, err = ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msgf("error reading request body")
+		c.JSON(http.StatusBadRequest, "")
+		return
+	}
+
+	// var aggregation string
+	// err = json.Unmarshal(request, &aggregation)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	aggregation := []bson.D{
+		{
+			{
+				"$group", bson.D{
+					{"_id", "$publications"},
+					{
+						"min_publications", bson.D{
+							{"$min", "$publications"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := w.mongo.Aggregate(databaseDetails.Database, databaseDetails.Collection, aggregation)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msgf("error aggregating data into database")
+		c.JSON(http.StatusInternalServerError, "")
+		return
+	}
+
+	parsedJSON := result
+
+	c.JSON(http.StatusOK, parsedJSON)
 }
 
 // Home serves requests for home (index).

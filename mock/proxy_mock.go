@@ -31,6 +31,12 @@ func (m *DBProxy) DBWrapperFunc(db, clt string, req []byte,
 	return []byte{}, nil
 }
 
+// Aggregate simulates an aggregation in database.
+func (m *DBProxy) Aggregate(db, clt string, req interface{}) (*db.AggregateResponse, error) {
+	// TODO
+	return nil, nil
+}
+
 // Find simulates the output of MongoDB.Find().
 func (m *DBProxy) Find(database, collection string, filter interface{}) (*db.FindResponse, error) {
 
